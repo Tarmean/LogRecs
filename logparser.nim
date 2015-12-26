@@ -1,5 +1,6 @@
 import strutils, lexbase, streams, sets, tables, times
 type 
+  LogParser* = BaseLexer
   Translation* = ref TranslationObj
   TranslationObj = object
     strokes*: seq[Stroke]
@@ -32,7 +33,7 @@ proc updateError(t: var Translation, stroke: string, time: TimeInfo) =
       v.times.add time
       return
   t.errors.add newStroke(stroke, time)
-proc parse(parser: var BaseLexer): TableRef[string, Translation] =
+proc parse*(parser: var BaseLexer): TableRef[string, Translation] =
   var 
     i: int
     stroke = ""
@@ -45,9 +46,9 @@ proc parse(parser: var BaseLexer): TableRef[string, Translation] =
     inputStack = newSeq[(string, string, TimeInfo)]()
     errorStack = newSeq[(string, TimeInfo)]()
   i = parser.lineStart
+  result = newTable[string, Translation]()
 
   while parser.buf[i] != '\0':
-    echo i
     for j in 0..<23:
       timeString[j] = parser.buf[i]
       inc i
@@ -71,11 +72,19 @@ proc parse(parser: var BaseLexer): TableRef[string, Translation] =
           break
         else:
           stroke.add '/'
-    of 'S', '*':
-      if id == 'S':
-        if parser.buf[i + 7] == '*':
-          errorStack.add((stroke, time))
-          inputStack.setLen max(inputStack.len - 1, 0)
+    of 'S':
+      if parser.buf[i + 7] == '*' and inputStack.len > 0:
+        # errorStack.setLen max(errorStack.len - 1, 0)
+        if errorStack.len == 0:
+          errorStack.add((inputStack[0][0], time))
+        inputStack.setLen max(inputStack.len - 1, 0)
+      while parser.buf[i] notin {'\c', '\l'}: inc i
+      case parser.buf[i]
+      of '\c': i = parser.handleCR i
+      of '\l': i = parser.handleLF i
+      else: return
+      continue
+    of '*':
       while parser.buf[i] notin {'\c', '\l'}: inc i
       case parser.buf[i]
       of '\c': i = parser.handleCR i
@@ -93,17 +102,16 @@ proc parse(parser: var BaseLexer): TableRef[string, Translation] =
 
     if id == 'T':
       if inputStack.len > 0:
-        echo repr inputStack
-        echo repr result
         var transRef: Translation = result.mgetOrPut(inputStack[0][1], newTranslation())
-        echo "bla"
         inc transRef.errorCount, errorStack.len
-        echo "bla"
         for error in errorStack:
           transRef.updateError(error[0], error[1])
+
         transRef.updateStroke(inputStack[0][0], inputStack[0][2])
-        errorStack.setLen 0
         inc transRef.usages
+        errorStack.setLen 0
+        inputStack.setLen inputStack.len - 1
+
       translation.setLen(translation.len - 1)
       inputStack.add((stroke, translation, time))
 
@@ -116,22 +124,22 @@ proc parse(parser: var BaseLexer): TableRef[string, Translation] =
 
 
 var 
-  logPath = when defined windows:
+  logPath* = when defined windows:
               r"C:\Users\Cyril\AppData\Local\plover\plover\plover.log"
             else:
               r"/home/cyril/.local/share/plover/plover.log"
 
-  s = newFileStream(logPath)
-  parser: BaseLexer
-parser.open s
-for a, b in parser.parse:
-  if b.errorCount >= 10:
-    echo a, ": "
-    echo "  usages: ", b.usages
-    echo "  errors: ", b.errorCount
-    for error in b.errors:
-      echo "  ", error.stroke, " ".repeat(max(30 - error.stroke.len, 0)), error.times.len
-      for time in error.times:
-        echo "    ", time.format "yyyy-MM-dd HH:mm:ss"#"h:mm:ss d/M/yy"
+  # s = newFileStream(logPath)
+  # parser: BaseLexer
+# parser.open s
+# for a, b in parser.parse:
+  # if b.errorCount >= 10:
+  #   echo a, ": "
+  #   echo "  usages: ", b.usages
+  #   echo "  errors: ", b.errorCount
+  #   for error in b.errors:
+  #     echo "  ", error.stroke, " ".repeat(max(30 - error.stroke.len, 0)), error.times.len
+  #     for time in error.times:
+  #       echo "    ", time.format "yyyy-MM-dd HH:mm:ss"#"h:mm:ss d/M/yy"
 
 
