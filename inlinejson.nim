@@ -1,14 +1,14 @@
 import
-  hashes, strutils, lexbase, streams, unicode, macros, tables
+  strutils, lexbase, streams, unicode, tables, critbits
 
 type
   JsonElementKind = enum
     jsonValue, jsonObject, jsonArray
   JsonContainerLazy = enum
     lazyLoaded, eagerLoaded
-  JsonElement = object
-    case kind: JsonElementKind
-    of jsonValue: content: string
+  JsonElement* = object
+    case kind*: JsonElementKind
+    of jsonValue: content*: string
     of jsonObject, jsonArray:
       case lazy: bool
       of true:
@@ -38,12 +38,12 @@ type
     state: seq[ParserState]
     filename: string
 
-proc newJsonValue(value: string): JsonElement =
+proc newJsonValue*(value: string): JsonElement =
   result = JsonElement()
   result.kind = jsonValue
   result.content = value
 
-proc newJsonObject(parser: ref JsonParser): JsonElement =
+proc newJsonObject*(parser: ref JsonParser): JsonElement =
   result = JsonElement()
   result.kind = jsonObject
   result.lazy = true
@@ -250,8 +250,14 @@ proc getTok(my: var JsonParser): TokKind =
     inc(my.bufpos)
     result = tkError
   my.tok = result
+
+proc parse(parser: var JsonParser, onValue, onObject, onArray: expr) =
+  var tok: TokKind
+  while true:
+    tok = parser.getTok()
  
-iterator pairs(element: JsonElement): (string, JsonElement) =
+iterator pairs*(element: JsonElement): (string, JsonElement) =
+  ## parses a json object and gives the element to some inlined code when a pair is found. Skips nestings.
   let parser = element.parser
   if element.kind == jsonObject:
     var 
@@ -304,7 +310,7 @@ proc close*(my: var JsonParser) {.inline.} =
   ## closes the parser `my` and its associated input stream.
   lexbase.close(my)
 
-proc parseJson(filestream: Stream, filename: string): ref JsonParser =
+proc parseJson*(filestream: Stream, filename: string): ref JsonParser =
   result = new JsonParser
   result[].open(filestream, filename)
   discard getTok(result[]) # read first token
@@ -316,14 +322,4 @@ proc parseFile*(filename: string):  ref JsonParser =
     raise newException(IOError, "cannot read from file: " & filename)
   result = parseJson(stream, filename)
 
-var 
-  parser = parseFile(r"C:\Users\Cyril\AppData\Local\plover\plover\main.json")
-  rootObject = newJsonObject(parser)
-  table = newTable[string, string]()
-
-# echo repr rootObject
-for key, value in rootObject:
-  table[value.content] = key
-  
-echo table["sun"]
 
