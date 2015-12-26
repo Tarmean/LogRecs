@@ -1,45 +1,53 @@
 import strutils, lexbase, streams, sets, tables, times
 type 
-  Translation* = object
+  Translation* = ref TranslationObj
+  TranslationObj = object
     strokes*: seq[Stroke]
     usages*: int
-  Stroke* = object
+    errors*: seq[Stroke]
+    errorCount*: int
+  Stroke* = ref StrokeObj
+  StrokeObj = object
     times*: seq[TimeInfo]
-    stroke*: string #seq[int, 22]
+    stroke*: string
 proc newTranslation(): Translation =
   result = Translation()
   result.usages = 0
   result.strokes = newSeq[Stroke]()
-proc newStroke(s: var string, t: TimeInfo): Stroke =
+  result.errors = newSeq[Stroke]()
+proc newStroke(s: string, t: TimeInfo): Stroke =
   result = Stroke()
   result.stroke = s
   result.times = @[t]
 
-proc updateStroke(t: var Translation, stroke: var string, time: TimeInfo) =
-  for s in t.strokes.mitems():
-    if s.stroke == stroke:
-      s.times.add(time)
+proc updateStroke(t: var Translation, stroke: string, time: TimeInfo) =
+  for v in t.strokes.mitems():
+    if v.stroke == stroke:
+      v.times.add time
       return
   t.strokes.add newStroke(stroke, time)
+proc updateError(t: var Translation, stroke: string, time: TimeInfo) =
+  for v in t.errors.mitems():
+    if v.stroke == stroke:
+      v.times.add time
+      return
+  t.errors.add newStroke(stroke, time)
 proc parse(parser: var BaseLexer): TableRef[string, Translation] =
   var 
     i: int
     stroke = ""
     translation = ""
-    lastTranslation = ""
-    backup = ""
-    pbackup = ""
     timeString = newString 23
     strokeLength = 0
     time: TimeInfo
     id = 'T'
-    line: string
-  result = newTable[string, Translation]()
+
+    inputStack = newSeq[(string, string, TimeInfo)]()
+    errorStack = newSeq[(string, TimeInfo)]()
   i = parser.lineStart
 
   while parser.buf[i] != '\0':
-    pbackup = timeString
-    backup = timeString
+    echo i
     for j in 0..<23:
       timeString[j] = parser.buf[i]
       inc i
@@ -64,14 +72,17 @@ proc parse(parser: var BaseLexer): TableRef[string, Translation] =
         else:
           stroke.add '/'
     of 'S', '*':
+      if id == 'S':
+        if parser.buf[i + 7] == '*':
+          errorStack.add((stroke, time))
+          inputStack.setLen max(inputStack.len - 1, 0)
       while parser.buf[i] notin {'\c', '\l'}: inc i
       case parser.buf[i]
       of '\c': i = parser.handleCR i
       of '\l': i = parser.handleLF i
       else: return
-      if id == '*': continue
-    else:
-      echo "IDERROR: ", parser.buf[i]
+      continue
+    else: return
     while parser.buf[i] notin {'\c', '\l'}:
       translation.add parser.buf[i]
       inc i
@@ -80,13 +91,23 @@ proc parse(parser: var BaseLexer): TableRef[string, Translation] =
     of '\l': i = parser.handleLF i
     else: return
 
-    translation.setLen translation.len - 1
     if id == 'T':
-      result.mgetOrPut(translation, newTranslation()).updateStroke(stroke, time)
-    elif result.hasKey lastTranslation:
-      inc result[lastTranslation].usages
+      if inputStack.len > 0:
+        echo repr inputStack
+        echo repr result
+        var transRef: Translation = result.mgetOrPut(inputStack[0][1], newTranslation())
+        echo "bla"
+        inc transRef.errorCount, errorStack.len
+        echo "bla"
+        for error in errorStack:
+          transRef.updateError(error[0], error[1])
+        transRef.updateStroke(inputStack[0][0], inputStack[0][2])
+        errorStack.setLen 0
+        inc transRef.usages
+      translation.setLen(translation.len - 1)
+      inputStack.add((stroke, translation, time))
 
-    lastTranslation = translation
+
     strokeLength = 0
     translation.setLen 0
     stroke.setLen 0
@@ -104,10 +125,13 @@ var
   parser: BaseLexer
 parser.open s
 for a, b in parser.parse:
-  echo a, ": ", b.usages
-  for stroke in b.strokes:
-    echo "  ", stroke.stroke
-    for time in stroke.times:
-      echo "      ", time.format "h:MM:ss d/m/yy"
+  if b.errorCount >= 10:
+    echo a, ": "
+    echo "  usages: ", b.usages
+    echo "  errors: ", b.errorCount
+    for error in b.errors:
+      echo "  ", error.stroke, " ".repeat(max(30 - error.stroke.len, 0)), error.times.len
+      for time in error.times:
+        echo "    ", time.format "yyyy-MM-dd HH:mm:ss"#"h:mm:ss d/M/yy"
 
 
