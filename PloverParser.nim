@@ -1,7 +1,13 @@
-import inlinejson, streams, critbits, strutils
+import inlinejson, streams, critbits, strutils, os
 
 var 
-  parser = parseFile(r"C:\Users\Cyril\AppData\Local\plover\plover\main.json")
+
+
+  dictPath = when defined windows:
+                r"/home/cyril/.local/share/plover/dict.json"
+             else:
+                r"C:\Users\Cyril\AppData\Local\plover\plover\main.json"
+  parser = parseFile(dictPath)
   rootObject = newJsonObject(parser)
   # table = newTable[string, string]()
   t = CritBitTree[string]()

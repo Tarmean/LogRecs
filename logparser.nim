@@ -2,13 +2,13 @@ import strutils, lexbase, streams, sets, tables, times
 type 
   Translation* = object
     strokes*: seq[Stroke]
-    misStrokes*: int
+    usages*: int
   Stroke* = object
     times*: seq[TimeInfo]
     stroke*: string #seq[int, 22]
 proc newTranslation(): Translation =
   result = Translation()
-  result.misStrokes = 0
+  result.usages = 0
   result.strokes = newSeq[Stroke]()
 proc newStroke(s: var string, t: TimeInfo): Stroke =
   result = Stroke()
@@ -21,137 +21,93 @@ proc updateStroke(t: var Translation, stroke: var string, time: TimeInfo) =
       s.times.add(time)
       return
   t.strokes.add newStroke(stroke, time)
-proc parse(l: var BaseLexer): TableRef[string, Translation] =
+proc parse(parser: var BaseLexer): TableRef[string, Translation] =
   var 
     i: int
     stroke = ""
     translation = ""
     lastTranslation = ""
+    backup = ""
+    pbackup = ""
     timeString = newString 23
     strokeLength = 0
     time: TimeInfo
     id = 'T'
     line: string
   result = newTable[string, Translation]()
-  i = l.lineStart
+  i = parser.lineStart
 
-  block outer:
-    while true:
-      for j in 0..<23:
-        timeString[j] = l.buf[i]
-        inc i
-      # echo timeString
-      try: time = timeString.parse "yyyy-MM-dd HH:mm:ss"
-      except:
-        return
+  while parser.buf[i] != '\0':
+    pbackup = timeString
+    backup = timeString
+    for j in 0..<23:
+      timeString[j] = parser.buf[i]
       inc i
-      id = l.buf[i]
-      # echo "ID, ", id
-      case id
-      of 'T':
-        inc i, 13
-        while true:
-          inc strokeLength
-          while l.buf[i] != '\'':
-            inc i
+    time = timeString.parse "yyyy-MM-dd HH:mm:ss"
+    inc i
+    id = parser.buf[i]
+    case id
+    of 'T':
+      inc i, 13
+      while true:
+        inc strokeLength
+        while parser.buf[i] != '\'':
           inc i
-          while l.buf[i] != '\'':
-            stroke.add l.buf[i]
-            inc i
-          inc i, if strokeLength == 1: 2 else: 1
-          if l.buf[i] == ')':
-            inc i, 4
-            break
-          else:
-            stroke.add '/'
-      of 'S', '*':
-        while l.buf[i] notin {'\c', '\L', '\0'}: inc i
-        case l.buf[i]
-        of '\c': i = l.handleCR i
-        of '\L': i = l.handleLF i
-        of '\0': return
-        else:
-          echo "S*ERROR"
-          echo l.buf[i]
-          echo stroke, "/",  translation
-          echo time
-          echo id
-          inc i
-          return
-        if id == '*': continue
-      else:
-        echo "IDERROR: ", l.buf[i]
-      while l.buf[i] notin {'\c', '\L', '\0'}:
-        translation.add l.buf[i]
         inc i
-      case l.buf[i]
-      of '\c': i = l.handleCR i
-      of '\L': i = l.handleLF i
-      of '\0': return
-      else:
-        echo "NL ERROR"
-        echo l.buf[i]
-        echo stroke, "/",  translation
-        echo time
-        echo id
-        return
-      translation.setLen translation.len - 1
-      if id == 'T':
-        result.mgetOrPut(translation, newTranslation()).updateStroke(stroke, time)
-      elif result.hasKey lastTranslation:
-        inc result[lastTranslation].misStrokes
+        while parser.buf[i] != '\'':
+          stroke.add parser.buf[i]
+          inc i
+        inc i, if strokeLength == 1: 2 else: 1
+        if parser.buf[i] == ')':
+          inc i, 4
+          break
+        else:
+          stroke.add '/'
+    of 'S', '*':
+      while parser.buf[i] notin {'\c', '\l'}: inc i
+      case parser.buf[i]
+      of '\c': i = parser.handleCR i
+      of '\l': i = parser.handleLF i
+      else: return
+      if id == '*': continue
+    else:
+      echo "IDERROR: ", parser.buf[i]
+    while parser.buf[i] notin {'\c', '\l'}:
+      translation.add parser.buf[i]
+      inc i
+    case parser.buf[i]
+    of '\c': i = parser.handleCR i
+    of '\l': i = parser.handleLF i
+    else: return
 
-      lastTranslation = translation
-      strokeLength = 0
-      translation.setLen 0
-      stroke.setLen 0
+    translation.setLen translation.len - 1
+    if id == 'T':
+      result.mgetOrPut(translation, newTranslation()).updateStroke(stroke, time)
+    elif result.hasKey lastTranslation:
+      inc result[lastTranslation].usages
+
+    lastTranslation = translation
+    strokeLength = 0
+    translation.setLen 0
+    stroke.setLen 0
 
 
 
-
-
-  # while not (l.buf[i] in {'\c', '\L', EndOfFile}):
-  #   for j in 0..<23:
-  #     timeString[j] = l.buf[i + j]
-  #   time = timeString.parse "yyyy-MM-dd HH:mm:ss"
-  #   echo time
-  #   inc i, 24
-  #   case l.buf[i]
-  #   of '*', 'S':
-  #     while l.buf[i] != '\L':
-  #       inc i
-  #     inc i, 25
-  #   else: discard
-  #   while true:
-  #     echo l.buf[i]
-  #     while not (l.buf[i] != '\''):
-  #       stroke.add l.buf[i]
-  #       echo l.buf[i]
-  #       inc i
-  #     if l.buf[i] == ')':
-  #       inc i, 4
-  #       break
-  #     else:
-  #       stroke.add '/'
-  #       while l.buf[i] != '\'':
-  #         inc i
-  #       inc i
-  #   while l.buf[i] == ')':
-  #     translation.add l.buf[i]
-  #     inc i
-  #   echo stroke, " ", translation
-
-# echo parse("2015-12-06 16:34:39,089 ", "yyyy-MM-dd HH:mm:ss")
 
 var 
-  s = newFileStream(r"C:\Users\Cyril\AppData\Local\plover\plover\plover.log")
-  l: BaseLexer
-l.open s
-let 
-  r = l.parse
-for k, v in r:
-  if v.misStrokes > 1: echo k, " ", v.misStrokes
-  for stroke in v.strokes:
-    echo "     ", stroke.stroke
+  logPath = when defined windows:
+              r"C:\Users\Cyril\AppData\Local\plover\plover\plover.log"
+            else:
+              r"/home/cyril/.local/share/plover/plover.log"
+
+  s = newFileStream(logPath)
+  parser: BaseLexer
+parser.open s
+for a, b in parser.parse:
+  echo a, ": ", b.usages
+  for stroke in b.strokes:
+    echo "  ", stroke.stroke
+    for time in stroke.times:
+      echo "      ", time.format "h:MM:ss d/m/yy"
 
 
