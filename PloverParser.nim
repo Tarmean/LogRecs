@@ -37,7 +37,7 @@ for a, b in lParser.parse:
     dictLen = int.high
   for stroke in b.strokes:
     let strokeCount = stroke.stroke.find("/")
-    wastedStrokes += max(strokeCount - dictLen, 0)
+    wastedStrokes += max(strokeCount - dictLen, 0) * stroke.times.len
     if strokeCount < minLen:
       minLen = strokeCount
       minStroke = stroke.stroke
