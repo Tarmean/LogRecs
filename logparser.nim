@@ -8,7 +8,7 @@ type
     errors*: seq[Stroke]
     errorCount*: int
   Stroke* = ref StrokeObj
-  StrokeObj = object
+  StrokeObj* = object
     times*: seq[TimeInfo]
     stroke*: string
   
@@ -21,11 +21,11 @@ type
     lStrokeCorrection,   ## Internal state for '*Translation' entries, doesn't output but modifies the next 'Translation'
     lError          ## Something went horribly wrong during parsing or the log file is broken
   LogEntry* = object
-    case kind: LogKind
+    case kind*: LogKind
     of lInitialStroke, lModification:
-      translation: string
-      stroke: string
-      time: TimeInfo
+      translation*: string
+      stroke*: string
+      time*: TimeInfo
     of lDeletion, lError, lStrokeCorrection: discard
 
 
@@ -181,7 +181,6 @@ when isMainModule:
     inputs = newSeq[seq[(string, string, TimeInfo)]]()
   parser.open s
   for a in parser.parse:
-    
     case a.kind
     of lInitialStroke:
       echo a.stroke, " ", a.translation
