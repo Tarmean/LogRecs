@@ -10,7 +10,7 @@ type
       when T isnot void:
         val*: T
 
-  Node[T] = ref NodeObj[T]
+  Node*[T] = ref NodeObj[T]
   CritBitTree*[T] = object ## The crit bit tree can either be used
                            ## as a mapping from strings to
                            ## some type ``T`` or as a set of
@@ -22,7 +22,7 @@ proc len*[T](c: CritBitTree[T]): int =
   ## returns the number of elements in `c` in O(1).
   result = c.count
 
-proc rawGet[T](c: CritBitTree[T], key: string): Node[T] =
+proc rawGet*[T](c: CritBitTree[T], key: string): Node[T] =
   var it = c.root
   while it != nil:
     if not it.isLeaf:

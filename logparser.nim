@@ -39,7 +39,7 @@ proc newLogEntry(kind: LogKind, stroke, translation: string, time: TimeInfo): Lo
   result.translation = translation
   result.time        = time
 
-proc newTranslation(): Translation =
+proc newTranslation*(): Translation =
   result = Translation()
   result.usages = 0
   result.strokes = newSeq[Stroke]()
@@ -49,7 +49,7 @@ proc newStroke(s: string, t: TimeInfo): Stroke =
   result.stroke = s
   result.times = @[t]
 
-proc updateStroke(t: var Translation, stroke: string, time: TimeInfo) =
+proc updateStroke*(t: var Translation, stroke: string, time: TimeInfo) =
   for v in t.strokes.mitems():
     if v.stroke == stroke:
       v.times.add time
