@@ -25,19 +25,18 @@ type
     of lInitialStroke, lModification:
       translation*: string
       stroke*: string
-      time*: TimeInfo
     of lDeletion, lError, lStrokeCorrection: discard
+    time*: TimeInfo
 
 
-proc newDeletionEntry(): LogEntry =
-  result = LogEntry()
+proc newDeletionEntry(t: TimeInfo): LogEntry =
+  result = LogEntry(time: t)
   result.kind = lDeletion
 proc newLogEntry(kind: LogKind, stroke, translation: string, time: TimeInfo): LogEntry =
-  result             = LogEntry()
+  result             = LogEntry(time: time)
   result.kind        = kind
   result.stroke      = stroke
   result.translation = translation
-  result.time        = time
 
 proc newTranslation*(): Translation =
   result = Translation()
@@ -87,11 +86,10 @@ iterator parse*(parser: var BaseLexer): LogEntry =
            else: lError
       case id
       of lInitialStroke, lModification:
-        id = if state == LogState.Correcting:
-               lModification
-             else:
+        id = if state == LogState.Normal:
                lInitialStroke
-        state = LogState.Normal
+             else:
+               lModification
         inc i, 13 # skip to the stroke start
         while true:
           inc strokeLength
@@ -120,6 +118,7 @@ iterator parse*(parser: var BaseLexer): LogEntry =
       of lDeletion:
         if parser.buf[i + 7] == '*' and parser.buf[i + 8] == ')': # stroke is only '*'
           state = LogState.Deleting
+        else: state = LogState.Normal
         while parser.buf[i] notin {'\c', '\l'}: inc i
         case parser.buf[i]
         of '\c': i = parser.handleCR i
@@ -128,7 +127,8 @@ iterator parse*(parser: var BaseLexer): LogEntry =
         if state != LogState.Deleting: continue # skip only if the stroke wasn't '*'
 
       of lStrokeCorrection: # two options, multi stroke or * deletion. If it is a deletion the state is Deleting
-        if state == LogState.Normal: state = LogState.Correcting
+        if state == LogState.Normal:
+          state = LogState.Correcting
         while parser.buf[i] notin {'\c', '\l'}: inc i
         case parser.buf[i]
         of '\c': i = parser.handleCR i
@@ -140,7 +140,7 @@ iterator parse*(parser: var BaseLexer): LogEntry =
       # at this point the line is parsed and everything is ready to return:
       var result: LogEntry
       if state == LogState.Deleting:
-        result = newDeletionEntry()
+        result = newDeletionEntry(time)
       else:
         result = newLogEntry(id, stroke, translation, time)
       yield result
