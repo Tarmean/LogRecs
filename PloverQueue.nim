@@ -11,11 +11,26 @@ type
     wr: int
   LogQueue = object
     queue: Queue[LogQueueGroup]
-  LogQueueGroup* = ref object
-    entry*: LogEntry
+  PrefixKind* = enum
+    knPrefix, knEntry, knNone
+  DictionaryEntry* = object
+    originalStroke*: string
+    translation*: string
     strokes*: int
-    dictionaryPrefixes*: seq[(int, string, Node[string])]
-    dictionaryEntries*: seq[(int, string, string)]
+    case kind*: PrefixKind
+    of knPrefix:
+      node: Node[string]
+    of knEntry:
+      dictionaryStroke*: string
+    of knNone: discard
+  LogQueueGroup* = ref object
+    strokes*: int
+    time: TimeInfo
+    dictionaryPrefixes*: seq[DictionaryEntry]
+    dictionaryEntries*: seq[DictionaryEntry]
+  DictionaryOutput* = object
+    time*: TimeInfo
+    dictionaryEntries*: seq[DictionaryEntry]
 
 var
   dictPath = when defined windows:
@@ -37,36 +52,70 @@ proc getNextNode[T](n: Node[T], key: string): Node[T] =
      ch = key[result.byte]
      dir = (1 + (ch.ord or result.otherBits.ord)) shr 8
     result = result.child[dir]
-proc finishNodes[T](stroke: string, e: seq[(int, string, Node[T])]): seq[(int, string, string)] =
+proc getEntry(p: DictionaryEntry, i: LogEntry): DictionaryEntry =
+  result = DictionaryEntry() # DictionaryEntry contains a TimeInfo object which contains ranges that can't be 0, so the compiler forces it to be set to something immediately
+  result.strokes = p.strokes + i.stroke.count('/') + 1
+  result.originalStroke = p.originalStroke & " " & i.stroke
+  result.translation = p.translation & i.translation
+
+  let node = getNextNode(p.node,  result.translation)
+  if isNil node:
+    result.kind = knNone
+  elif node.isLeaf:
+    let wasted = result.strokes - node.val.count('/') - 1
+    if node.key == result.translation and wasted > 0:
+      result.kind = knEntry
+      result.strokes = wasted
+      result.dictionaryStroke = node.val
+    else: result.kind = knNone
+  else:
+    result.kind = knPrefix
+    result.node = node
+proc getEntry(c: CritBitTree, i: LogEntry): DictionaryEntry =
+  result = DictionaryEntry()
+  result.strokes = i.stroke.count('/') + 1
+  result.originalStroke = i.stroke
+  result.translation = i.translation
+
+  let node = getNextNode(c.root, result.translation)
+  if isNil node:
+    result.kind = knNone
+  elif node.isLeaf:
+    let wasted = result.strokes - node.val.count('/') - 1
+    if node.key == result.translation and wasted > 0:
+      result.kind = knEntry
+      result.strokes = wasted
+      result.dictionaryStroke = node.val
+    else: result.kind = knNone
+  else:
+    result.kind = knPrefix
+    result.node = node
+proc getEntry(strokes: int, originalStroke, dictionaryStroke, translation: string): DictionaryEntry =
+  DictionaryEntry(kind: knEntry, strokes: strokes, originalStroke: originalStroke, dictionaryStroke: dictionaryStroke, translation: translation)
+
+proc finishNodes(e: seq[DictionaryEntry]): seq[DictionaryEntry] =
   result = @[]
   for entry in e:
-    var 
-      (baseStrokes, key, it) = entry
-      strokes = baseStrokes + stroke.count('/')
+    var it = entry.node
     while it != nil:
       if it.isLeaf:
-        let wasted = strokes - it.val.count('/') - 1
-        if key == it.key and wasted > 0:
-          result.add((wasted, it.val, it.key))
+        let 
+          wasted = entry.strokes - it.val.count('/') - 1
+        if entry.translation == it.key and wasted > 0:
+          result.add getEntry(wasted, entry.originalStroke, it.val, entry.translation)
         break
       else:
         let dir = (('\0'.ord or it.otherBits.ord) + 1) shr 8
         it = it.child[dir]
-proc updateGroups(postFix: string, stroke: string, p: seq[(int, string, Node[string])]): (seq[(int, string, string)], seq[(int, string, Node[string])]) =
+proc updateGroups(p: seq[DictionaryEntry], c: CritBitTree, i: LogEntry): (seq[DictionaryEntry], seq[DictionaryEntry]) =
   result[0] = @[]
   result[1] = @[]
   for a in p:
-    let 
-      (strokeBase, startKey, startNode) = a
-      searchKey = if startKey != nil: startKey & " " & postFix else: postFix
-      node = getNextNode(startNode,  searchKey)
-      strokes = strokeBase + stroke.count('/') + 1
-    if node.isLeaf:
-      let wasted = strokes - node.val.count('/') - 1
-      if node.key == searchKey and wasted > 0:
-        result[0].add((wasted, node.val, node.key))
-    else:
-      result[1].add((strokes, searchKey, node))
+    let e = a.getEntry i
+    case e.kind
+    of knPrefix: result[0].add e
+    of knEntry: result[1].add e
+    of knNone: continue
 
 proc initQueue*[T](initialSize=4): Queue[T] =
   ## creates a new queue. `initialSize` needs to be a power of 2.
@@ -75,14 +124,16 @@ proc initQueue*[T](initialSize=4): Queue[T] =
   newSeq(result.data, initialSize)
 proc initLogQueue*(): LogQueue =
   result.queue = initQueue[LogQueueGroup]()
-proc initLogQueueGroup*(c: CritBitTree, p: seq[(int, string, Node[string])], i: LogEntry): LogQueueGroup =
-  result = LogQueueGroup(entry: i)
-  var p = p
-  p.add((0, nil,  c.root))
-  (result.dictionaryEntries, result.dictionaryPrefixes) = updateGroups(i.translation, i.stroke, p)
+proc initLogQueueGroup*(c: CritBitTree, p: seq[DictionaryEntry], i: LogEntry): LogQueueGroup =
+  result = LogQueueGroup(time: i.time)
+  (result.dictionaryPrefixes, result.dictionaryEntries) = updateGroups(p, c, i)
+  let e = c.getEntry i
+  case e.kind
+  of knPrefix: result.dictionaryPrefixes.add e
+  of knEntry: result.dictionaryEntries.add e
+  of knNone: discard
 
 
-const maxStrokes = 10
 proc `$`*[T](q: Queue[T]): string =
   ## turns a queue into its string representation.
   result = "["
@@ -122,10 +173,6 @@ proc add*[T](q: var Queue[T], i: T) =
   q.data[q.wr] = i
   q.wr = (q.wr + 1) and q.mask
 
-
-proc printQueue(q: LogQueue) =
-    echo  " count", q.queue.count, " cap", q.queue.cap,  " mask", q.queue.mask, " rd", q.queue.rd, " wr", q.queue.wr
-
 proc peak*(q: var LogQueue): var LogQueueGroup =
     let i = (q.queue.wr - 1 + q.queue.mask ) mod q.queue.mask
     q.queue.data[i]
@@ -138,9 +185,7 @@ proc addStroke*(q: var LogQueue, c: CritBitTree[string], i: LogEntry) =
                  q.peak.dictionaryPrefixes
                else:
                  @[]
-
   entry = initLogQueueGroup(c, prefixes, i)
-
   add(q.queue, entry)
   
 proc removeStroke*(q: var LogQueue, c: CritBitTree): LogQueueGroup=
@@ -149,20 +194,22 @@ proc removeStroke*(q: var LogQueue, c: CritBitTree): LogQueueGroup=
   q.queue.wr = (q.queue.wr - 1 + q.queue.mask) mod q.queue.mask
   result = q.queue.data[q.queue.wr]
 
-iterator getEntries*(): LogQueueGroup =
+const maxStrokes = 10
+iterator getEntries*(): DictionaryOutput =
     var
       s = newFileStream(logPath)
       parser: BaseLexer
       inputs = initLogQueue()
-      i = 0
     parser.open s
     for a in parser.parse:
       case a.kind
       of lAddition:
         inputs.addStroke(dictionaryTree, a)
         if inputs.queue.count >= maxStrokes:
-          var result = inputs.dequeue()
-          result.dictionaryEntries.add finishNodes(result.entry.stroke, result.dictionaryPrefixes)
+          var 
+            e = inputs.dequeue()
+            result = DictionaryOutput(time: e.time, dictionaryEntries: e.dictionaryEntries)
+          result.dictionaryEntries.add finishNodes(e.dictionaryPrefixes)
           yield result
       of lDeletion:
         discard inputs.removeStroke dictionaryTree

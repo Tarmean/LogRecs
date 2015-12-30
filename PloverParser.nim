@@ -1,29 +1,25 @@
 import tables, PloverQueue
+from hashes import hash
 from strutils import count, repeat
 from times import format
 
 proc allign(s: any, i: int): string = result = $s & " ".repeat(max(i - ($s).len, 0))
 
 var 
-  entries: seq[(int, string, string)] = @[]
-  result = initCountTable[string]()
-
-echo "start Inserting"
+  result = initTable[string, DictionaryEntry]()
+echo "Saved Translation         Original Stroke     Dictionary Stroke   Time Stamp"
 for entry in getEntries():
-  for pair in entry.dictionaryEntries:
-    let 
-      (wasted, stroke, translation) = pair
-    result.inc translation, wasted
-    if translation != entry.entry.translation: echo wasted.allign 4, translation.allign 20, stroke.allign 20, entry.entry.time.format"yyyy-MM-dd HH:mm:ss"
-echo "start sorting"
-result.sort
-echo "start outputting"
-var i = 0
-for a, b in result:
-  let countString = $b
-  echo countString, " ".repeat(max(5 - countString.len, 0)), a
-  inc i
-  if i > 30: break
+  for e in entry.dictionaryEntries:
+    echo e.strokes.allign 6, e.translation.allign 20, e.originalStroke.allign 20, e.dictionaryStroke.allign 20, entry.time.format("yyyy-MM-dd HH:mm:ss")
+    # result(e, e.strokes)
+    # if e.translation != e.originalStroke: echo wasted.allign 4, translation.allign 20, stroke.allign 20, entry.entry.time.format"yyyy-MM-dd HH:mm:ss"
+    #
+# result.sort
+# var i = 0
+# for a, b in result:
+#   echo b.allign 4, a.translation.allign 10, a.originalStroke.allign 10, a.dictionaryStroke.allign 10
+#   inc i
+#   if i > 30: break
     # var tracker = result.mgetOrPut(translation, newTranslation())
 
     # inc tracker.wastedStrokes, (entry.entry.stroke.count('/') - stroke.count('/'))
