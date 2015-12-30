@@ -3,29 +3,25 @@ type
   LogParser* = BaseLexer
   Translation* = ref TranslationObj
   TranslationObj = object
-    strokes*: seq[Stroke]
+    strokes*: string
     usages*: int
-    errors*: seq[Stroke]
-    errorCount*: int
+    wastedStrokes*: int
   Stroke* = ref StrokeObj
   StrokeObj* = object
     times*: seq[TimeInfo]
     stroke*: string
   
-  LogState {.pure.} = enum 
-    Normal, Correcting, Deleting
   LogKind* = enum
-    lInitialStroke, ## First stroke in a word as recognized by Plover
-    lModification,  ## Addition to some previous stroke, plover replaced the last output with this one
-    lDeletion,      ## Special handeling in case a * was stroked to pop the last stroke
-    lStrokeCorrection,   ## Internal state for '*Translation' entries, doesn't output but modifies the next 'Translation'
-    lError          ## Something went horribly wrong during parsing or the log file is broken
+    lAddition, ## Type some stuff
+    lDeletion,      ## Remove the typed stuff
+    lStroke,   ## Internal state for '*Translation' entries, doesn't output but modifies the next 'Translation'
+    lError
   LogEntry* = object
     case kind*: LogKind
-    of lInitialStroke, lModification:
+    of lAddition:
       translation*: string
       stroke*: string
-    of lDeletion, lError, lStrokeCorrection: discard
+    of lDeletion, lStroke, lError: discard
     time*: TimeInfo
 
 
@@ -41,25 +37,26 @@ proc newLogEntry(kind: LogKind, stroke, translation: string, time: TimeInfo): Lo
 proc newTranslation*(): Translation =
   result = Translation()
   result.usages = 0
-  result.strokes = newSeq[Stroke]()
-  result.errors = newSeq[Stroke]()
+  result.wastedStrokes = 0
+  # result.strokes = newSeq[Stroke]()
+  # result.errors = newSeq[Stroke]()
 proc newStroke(s: string, t: TimeInfo): Stroke =
   result = Stroke()
   result.stroke = s
   result.times = @[t]
 
-proc updateStroke*(t: var Translation, stroke: string, time: TimeInfo) =
-  for v in t.strokes.mitems():
-    if v.stroke == stroke:
-      v.times.add time
-      return
-  t.strokes.add newStroke(stroke, time)
-proc updateError(t: var Translation, stroke: string, time: TimeInfo) =
-  for v in t.errors.mitems():
-    if v.stroke == stroke:
-      v.times.add time
-      return
-  t.errors.add newStroke(stroke, time)
+# proc updateStroke*(t: var Translation, stroke, wasted) =
+#   # for v in t.strokes.mitems():
+#   #   if v.stroke == stroke:
+#   #     v.times.add time
+#   #     return
+#   t.strokes.add newStroke(stroke, time)
+# proc updateError(t: var Translation, stroke: string, time: TimeInfo) =
+#   for v in t.errors.mitems():
+#     if v.stroke == stroke:
+#       v.times.add time
+#       return
+#   t.errors.add newStroke(stroke, time)
 
 iterator parse*(parser: var BaseLexer): LogEntry =
   var 
@@ -68,28 +65,24 @@ iterator parse*(parser: var BaseLexer): LogEntry =
     stroke       = ""               # buffer for the current stroke
     translation  = ""               # buffer for the current translation
     timeString   = newString 23     # buffer for the date and time fields
-    state        = LogState.Normal  # internal flag for current state
     strokeLength = 0                # length of the current stroke, i.e. number of /'s +1
     i            = parser.lineStart # position in the lexer buffer
+    result: LogEntry
 
   block outer:
     while parser.buf[i] != '\0': # if the EOF isn't after an eol character the log is broken
-      for j in 0..<23: # the date fields combined are 23 characters long
+      for j in 0..<23: # the date and time fields combined are 23 characters long
         timeString[j] = parser.buf[i]
         inc i
       time = timeString.parse "yyyy-MM-dd HH:mm:ss"
       inc i # skip the space
-      id = case parser.buf[i] # the initial letter kind of tells the log type. Kind of.
-           of 'T': lInitialStroke    # the interesting bits
-           of '*': lStrokeCorrection # this either means a multi stroke word or * was used, note for next T
-           of 'S': lDeletion         # only interesting if the stroke was *, otherwise the line is skipped
-           else: lError
+      id = case parser.buf[i] # 24th character or the line can be used to id the type
+           of 'T': lAddition  # add a stroke and update possible dictionary entries
+           of '*': lDeletion  # remove the last stroke, either because of multi stroke words or '*'
+           of 'S': lStroke    # all this info is also in the next T so ignore these
+           else: lError       # broken log file or parser, gives up
       case id
-      of lInitialStroke, lModification:
-        id = if state == LogState.Normal:
-               lInitialStroke
-             else:
-               lModification
+      of lAddition:
         inc i, 13 # skip to the stroke start
         while true:
           inc strokeLength
@@ -114,35 +107,26 @@ iterator parse*(parser: var BaseLexer): LogEntry =
             of '\l': i = parser.handleLF i
             else: break outer
             break
+        result = newLogEntry(id, stroke, translation, time)
 
-      of lDeletion:
-        if parser.buf[i + 7] == '*' and parser.buf[i + 8] == ')': # stroke is only '*'
-          state = LogState.Deleting
-        else: state = LogState.Normal
+      of lDeletion: # two options, multi stroke or * deletion. If it is a deletion the state is Deleting
         while parser.buf[i] notin {'\c', '\l'}: inc i
         case parser.buf[i]
         of '\c': i = parser.handleCR i
         of '\l': i = parser.handleLF i
         else: break outer
-        if state != LogState.Deleting: continue # skip only if the stroke wasn't '*'
+        result = newDeletionEntry(time)
 
-      of lStrokeCorrection: # two options, multi stroke or * deletion. If it is a deletion the state is Deleting
-        if state == LogState.Normal:
-          state = LogState.Correcting
+      of lStroke:
         while parser.buf[i] notin {'\c', '\l'}: inc i
         case parser.buf[i]
         of '\c': i = parser.handleCR i
         of '\l': i = parser.handleLF i
         else: break outer
         continue
-      else: break outer
+      of lError: break outer
 
       # at this point the line is parsed and everything is ready to return:
-      var result: LogEntry
-      if state == LogState.Deleting:
-        result = newDeletionEntry(time)
-      else:
-        result = newLogEntry(id, stroke, translation, time)
       yield result
 
       strokeLength = 0
@@ -182,12 +166,9 @@ when isMainModule:
   parser.open s
   for a in parser.parse:
     case a.kind
-    of lInitialStroke:
+    of lAddition:
       echo a.stroke, " ", a.translation
       inputs.add(@[(a.stroke, a.translation, a.time)])
-    of lModification:
-      echo "   ", a.stroke, " ", a.translation
-      inputs[inputs.high].add((a.stroke, a.translation, a.time))
     of lDeletion:
       echo "*"
       if inputs.len > 0:

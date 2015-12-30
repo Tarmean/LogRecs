@@ -11,11 +11,11 @@ type
     wr: int
   LogQueue = object
     queue: Queue[LogQueueGroup]
-    strokeCount: int
   LogQueueGroup* = ref object
-    entries*: seq[LogEntry]
-    dictionaryPrefixes*: seq[(string, CritBits.Node[string])]
-    dictionaryEntries*: seq[(string, string)]
+    entry*: LogEntry
+    strokes*: int
+    dictionaryPrefixes*: seq[(int, string, Node[string])]
+    dictionaryEntries*: seq[(int, string, string)]
 
 var
   dictPath = when defined windows:
@@ -27,7 +27,7 @@ var
   rootObject = newJsonObject(dparser)
 for key, value in rootObject:
   let (stroke, translation) = (key, value.content)
-  if not dictionaryTree.hasKey(translation) or dictionaryTree[translation].count('/') > stroke.count('/'):
+  if not dictionaryTree.hasKey(translation) or (dictionaryTree[translation].count('/') >= stroke.count('/')) or (dictionaryTree[translation].count('/') >= stroke.count('/')  and dictionaryTree[translation].len > stroke.len):
     dictionaryTree[translation] = stroke
 
 proc getNextNode[T](n: Node[T], key: string): Node[T] =
@@ -37,32 +37,36 @@ proc getNextNode[T](n: Node[T], key: string): Node[T] =
      ch = key[result.byte]
      dir = (1 + (ch.ord or result.otherBits.ord)) shr 8
     result = result.child[dir]
-proc finishNodes[T](stroke: string, e: seq[(string, Node[T])]): seq[(string, string)] =
+proc finishNodes[T](stroke: string, e: seq[(int, string, Node[T])]): seq[(int, string, string)] =
   result = @[]
   for entry in e:
-    var (key, it) = entry
+    var 
+      (baseStrokes, key, it) = entry
+      strokes = baseStrokes + stroke.count('/')
     while it != nil:
       if it.isLeaf:
-        # echo "check: ", key, " ", it.key
-        if key == it.key and stroke != it.val:
-          result.add((it.val, it.key))
+        let wasted = strokes - it.val.count('/')
+        if key == it.key and wasted > 0:
+          result.add((wasted, it.val, it.key))
         break
       else:
         let dir = (('\0'.ord or it.otherBits.ord) + 1) shr 8
         it = it.child[dir]
-proc updateGroups(post: string, stroke: string, p: seq[(string, Node[string])]): (seq[(string, string)], seq[(string, Node[string])]) =
+proc updateGroups(postFix: string, stroke: string, p: seq[(int, string, Node[string])]): (seq[(int, string, string)], seq[(int, string, Node[string])]) =
   result[0] = @[]
   result[1] = @[]
   for a in p:
     let 
-      (startKey, startNode) = a
-      searchKey = if startKey != nil: startKey & " " & post else: post
+      (strokeBase, startKey, startNode) = a
+      searchKey = if startKey != nil: startKey & " " & postFix else: postFix
       node = getNextNode(startNode,  searchKey)
+      strokes = strokeBase + stroke.count('/')
     if node.isLeaf:
-      if node.key == post and stroke != node.val:
-        result[0].add((node.val, node.key))
+      let wasted = strokes - node.val.count('/')
+      if node.key == searchKey and wasted > 0:
+        result[0].add((wasted, node.val, node.key))
     else:
-      result[1].add((searchKey, node))
+      result[1].add((strokes, searchKey, node))
 
 proc initQueue*[T](initialSize=4): Queue[T] =
   ## creates a new queue. `initialSize` needs to be a power of 2.
@@ -71,12 +75,10 @@ proc initQueue*[T](initialSize=4): Queue[T] =
   newSeq(result.data, initialSize)
 proc initLogQueue*(): LogQueue =
   result.queue = initQueue[LogQueueGroup]()
-  result.strokeCount = 0
-proc initLogQueueGroup*(c: CritBitTree, p: seq[(string, Node[string])], i: LogEntry): LogQueueGroup =
-  result = LogQueueGroup()
-  result.entries = @[i]
+proc initLogQueueGroup*(c: CritBitTree, p: seq[(int, string, Node[string])], i: LogEntry): LogQueueGroup =
+  result = LogQueueGroup(entry: i)
   var p = p
-  p.add((nil, c.root))
+  p.add((i.stroke.count('/')+1,nil,  c.root))
   (result.dictionaryEntries, result.dictionaryPrefixes) = updateGroups(i.translation, i.stroke, p)
 
 
@@ -123,21 +125,12 @@ proc add*[T](q: var Queue[T], i: T) =
 
 proc printQueue(q: LogQueue) =
     echo  " count", q.queue.count, " cap", q.queue.cap,  " mask", q.queue.mask, " rd", q.queue.rd, " wr", q.queue.wr
-    # var i = 0
-    # for entry in q.queue:
-    #     let 
-    #      a = entry.entries[entry.entries.high]
-    #      b = q.queue.data[i].entries[q.queue.data[i].entries.high]
-    #     echo i, ":   ", a.translation, " ", a.stroke, "  |  ", b.translation ,b.stroke
-    #     inc i
-    # echo ""
 
 proc peak*(q: var LogQueue): var LogQueueGroup =
     let i = (q.queue.wr - 1 + q.queue.mask ) mod q.queue.mask
     q.queue.data[i]
 proc dequeue*(q: var LogQueue): LogQueueGroup =
   result = q.queue.dequeue()
-  dec q.strokeCount, result.entries.len
 proc addStroke*(q: var LogQueue, c: CritBitTree[string], i: LogEntry) =
   var 
     entry: LogQueueGroup
@@ -149,40 +142,12 @@ proc addStroke*(q: var LogQueue, c: CritBitTree[string], i: LogEntry) =
   entry = initLogQueueGroup(c, prefixes, i)
 
   add(q.queue, entry)
-  inc q.strokeCount
-proc continueStroke*(q: var LogQueue, i: LogEntry, c: CritBitTree) =
-  q.peak.entries.add i
-  # let i = (q.queue.wr - 2 + q.queue.mask ) mod q.queue.mask
-  #     prevs = q.queue.data[i]
-  # echo "cont", q.peak.entries
-  inc q.strokeCount
   
-  var lastPrefixes: seq[(string, Node[string])]
-  if q.queue.count > 1:
-    lastPrefixes = q.queue.data[(q.queue.wr - 1 + q.queue.mask) mod q.queue.mask].dictionaryPrefixes
-  else:
-    lastPrefixes = @[]
-  lastPrefixes.add ((nil, c.root))
-  (q.peak.dictionaryEntries,q.peak.dictionaryPrefixes) = updateGroups(i.translation, i.stroke, lastPrefixes)
-proc removeStroke*(q: var LogQueue, c: CritBitTree): LogEntry =
-  if q.strokeCount == 0: return
-  var e:  seq[LogEntry]
-  e.shallowCopy q.peak.entries
-  result = e[e.high]
-  dec q.strokeCount
-  e.setLen e.high
-  if e.len == 0:
-    dec q.queue.count
-    q.queue.wr = (q.queue.wr - 1 + q.queue.mask) mod q.queue.mask
-  else:
-    var lastPrefixes: seq[(string, Node[string])]
-    if q.queue.count > 1:
-      lastPrefixes = q.queue.data[(q.queue.wr - 1 + q.queue.mask) mod q.queue.mask].dictionaryPrefixes
-    else:
-      lastPrefixes = @[]
-    lastPrefixes.add ((nil, c.root))
-    (q.peak.dictionaryEntries, q.peak.dictionaryPrefixes) = updateGroups(result.translation,  result.stroke, lastPrefixes)
-
+proc removeStroke*(q: var LogQueue, c: CritBitTree): LogQueueGroup=
+  if q.queue.count == 0: return
+  dec q.queue.count
+  q.queue.wr = (q.queue.wr - 1 + q.queue.mask) mod q.queue.mask
+  result = q.queue.data[q.queue.wr]
 
 iterator getEntries*(): LogQueueGroup =
     var
@@ -193,67 +158,12 @@ iterator getEntries*(): LogQueueGroup =
     parser.open s
     for a in parser.parse:
       case a.kind
-      of lInitialStroke:
+      of lAddition:
         inputs.addStroke(dictionaryTree, a)
-
-        if inputs.strokeCount >= maxStrokes:
-          var 
-            bla = inputs.dequeue()
-          if bla.dictionaryEntries.len > 0:
-            let entry = bla.entries[bla.entries.high]
-            bla.dictionaryEntries.add finishNodes(entry.stroke, bla.dictionaryPrefixes)
-            if bla.entries.len > 0:
-              var printed = false
-              for e in bla.dictionaryEntries:
-                let (dictStroke, dictTranslation) = e
-                if entry.translation != dictTranslation:
-                  if not printed:
-                    echo entry.stroke, " ", entry.translation, " ", entry.time.format("yyyy-MM-dd HH:mm:ss")
-                    printed = true
-                  echo "    ",  dictTranslation, "  |  ", entry.stroke, "->", dictStroke
-              if printed: echo ""
-            else:
-              echo repr bla
-          yield bla
-      of lModification:
-        inputs.continueStroke a, dictionaryTree
+        if inputs.queue.count >= maxStrokes:
+          var result = inputs.dequeue()
+          result.dictionaryEntries.add finishNodes(result.entry.stroke, result.dictionaryPrefixes)
+          yield result
       of lDeletion:
         discard inputs.removeStroke dictionaryTree
       else: break
-
-      if a.kind != lDeletion:
-        echo a.kind, " ", a.stroke, " ", a.translation, " ", a.time.format("yyyy-MM-dd HH:mm:ss")
-      else: echo  a.kind, " ", a.time
-      printQueue inputs
-      echo "in logical order: ", inputs.strokeCount
-      for entry in inputs.queue:
-          echo " ", entry.entries, " ", entry.dictionaryPrefixes.len, " ", entry.dictionaryEntries.len
-          for match in entry.dictionaryEntries:
-              let (stroke, translation) = match
-              echo "      ", stroke, " ",  translation
-      
-      echo ""
-      inc i
-      if i > 30: break
-      
-      
-      # echo "in memory order:"
-      # echo  " count", inputs.queue.count, " cap", inputs.queue.cap,  " mask", inputs.queue.mask, " rd", inputs.queue.rd, " wr", inputs.queue.wr
-      # for j in 0..inputs.queue.mask:
-      #     if inputs.queue.data[j] != nil:
-      #         echo " ",inputs.queue.data[j].entries
-      #     else:
-      #         echo " nil"
-
-        # let 
-        #  entry = bla.entries[bla.entries.high]
-        #  (logstroke, logtranslation) = (entry.stroke, entry.translation)
-        # var printed = false
-        # for entry in bla.dictionaryEntries:
-        #   let (stroke, translation) = entry
-        #   if logstroke.count('/') > stroke.count('/'):
-        #     if not printed:
-        #       echo logstroke, " ", logtranslation
-        #       echo bla.entries
-        #       printed = true
-        #     echo "    ", stroke, " ", translation
