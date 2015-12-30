@@ -45,7 +45,7 @@ proc finishNodes[T](stroke: string, e: seq[(int, string, Node[T])]): seq[(int, s
       strokes = baseStrokes + stroke.count('/')
     while it != nil:
       if it.isLeaf:
-        let wasted = strokes - it.val.count('/')
+        let wasted = strokes - it.val.count('/') - 1
         if key == it.key and wasted > 0:
           result.add((wasted, it.val, it.key))
         break
@@ -60,9 +60,9 @@ proc updateGroups(postFix: string, stroke: string, p: seq[(int, string, Node[str
       (strokeBase, startKey, startNode) = a
       searchKey = if startKey != nil: startKey & " " & postFix else: postFix
       node = getNextNode(startNode,  searchKey)
-      strokes = strokeBase + stroke.count('/')
+      strokes = strokeBase + stroke.count('/') + 1
     if node.isLeaf:
-      let wasted = strokes - node.val.count('/')
+      let wasted = strokes - node.val.count('/') - 1
       if node.key == searchKey and wasted > 0:
         result[0].add((wasted, node.val, node.key))
     else:
@@ -78,7 +78,7 @@ proc initLogQueue*(): LogQueue =
 proc initLogQueueGroup*(c: CritBitTree, p: seq[(int, string, Node[string])], i: LogEntry): LogQueueGroup =
   result = LogQueueGroup(entry: i)
   var p = p
-  p.add((i.stroke.count('/')+1,nil,  c.root))
+  p.add((0, nil,  c.root))
   (result.dictionaryEntries, result.dictionaryPrefixes) = updateGroups(i.translation, i.stroke, p)
 
 

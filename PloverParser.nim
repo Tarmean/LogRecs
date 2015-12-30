@@ -14,7 +14,7 @@ for entry in getEntries():
     let 
       (wasted, stroke, translation) = pair
     result.inc translation, wasted
-    if translation != entry.entry.translation: echo(translation.allign 20, entry.entry.translation.allign 15, wasted.allign 4, entry.entry.stroke.allign 20, stroke.allign 20, entry.entry.time.format"yyyy-MM-dd HH:mm:ss")
+    if translation != entry.entry.translation: echo wasted.allign 4, translation.allign 20, stroke.allign 20, entry.entry.time.format"yyyy-MM-dd HH:mm:ss"
 echo "start sorting"
 result.sort
 echo "start outputting"
