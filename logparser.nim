@@ -24,6 +24,10 @@ type
     of lDeletion, lStroke, lError: discard
     time*: TimeInfo
 
+proc openLog*(path: string): LogParser =
+  let s = newFileStream(path)
+  result = LogParser()
+  result.open s
 
 proc newDeletionEntry(t: TimeInfo): LogEntry =
   result = LogEntry(time: t)
