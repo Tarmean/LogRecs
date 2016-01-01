@@ -11,9 +11,9 @@ proc getEntries*(): DictionaryTree =
       of lAddition:
         q.addStroke(result, entry)
         if q.count >= maxStrokes:
-          q.dequeue.finishNodes
+            q.finishStroke()
       of lDeletion:
-        q.removeStroke
+        q.removeStroke()
       else: break
 
 when isMainModule:
