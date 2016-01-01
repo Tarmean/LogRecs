@@ -1,10 +1,10 @@
-import CritBits, inlinejson
+import critbits, inlinejson
 from times import TimeInfo
 from strutils import count
 from LogParser import LogEntry
 
 type
-  Node = CritBits.Node[TreeEntry]
+  Node = critbits.Node[TreeEntry]
   DictionaryTree* = CritBitTree[TreeEntry]
   TreeEntry* = ref object # Entry in the critbit tree, maps from canonical translation to everything needed
     dictStrokes*: seq[string]
@@ -28,7 +28,7 @@ type
 
 iterator pairs*(t: DictionaryTree): (string,TreeEntry) =
   echo isNil t.root
-  for a, b in CritBits.pairs(t):
+  for a, b in critbits.pairs(t):
     yield (a,b)
 proc initTreeEntry(originalTranslation: string): TreeEntry =
   result = TreeEntry(originalTranslation: originalTranslation)
@@ -53,17 +53,17 @@ proc getTree*(dictPath: string =
       canonicalizedTranslation = translation
 
     var entry: TreeEntry
+    let
+      newStrokeCount = stroke.count('/') + 1
     if result.hasKey(canonicalizedTranslation):
       entry = result[canonicalizedTranslation]
-      let
-        newStrokeCount = stroke.count('/') + 1
-        oldStrokeCount = entry.bestStrokeCount
-
-      let isStrokeBetter =  newStrokeCount < oldStrokeCount or
-                            (
-                              newStrokeCount == oldStrokeCount and
-                              entry.bestStroke.len > stroke.len
-                            )
+      let 
+        oldStrokeCount =  entry.bestStrokeCount
+        isStrokeBetter =  newStrokeCount < oldStrokeCount or
+                          (
+                            newStrokeCount == oldStrokeCount and
+                            entry.bestStroke.len > stroke.len
+                          )
       if isStrokeBetter:
         entry.bestStroke = stroke
         entry.bestStrokeCount = newStrokeCount
@@ -71,6 +71,7 @@ proc getTree*(dictPath: string =
       entry = initTreeEntry(translation)
       result[canonicalizedTranslation] = entry
       entry.bestStroke = stroke
+      entry.bestStrokeCount = newStrokeCount
     entry.dictStrokes.add stroke
 
 proc addStroke(n: Node, wasted: int, originalStroke: string, t: TimeInfo) =
