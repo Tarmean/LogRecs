@@ -23,7 +23,9 @@ proc addStroke*(q: var LogQueue, t: DictionaryTree, i: LogEntry) =
                  q.peak.dictionaryPrefixes
                else:
                  @[]
-  q.add initDictionaryEntryGroup(t.root, prefixes, i)
+  q.add getNextGroup(t.root, prefixes, i)
+proc finishStroke*(q: var LogQueue) =
+    q.dequeue.finishNodes()
 
 proc removeStroke*(q: var LogQueue) =
   if q.count == 0: return

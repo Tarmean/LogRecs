@@ -152,6 +152,6 @@ proc finishNodes*(e: DictionaryEntryGroup) =
         let dir = (('\0'.ord or it.otherBits.ord) + 1) shr 8
         it = it.child[dir]
 
-proc initDictionaryEntryGroup*(root: Node, p: seq[DictionaryEntry], i: LogEntry): DictionaryEntryGroup =
+proc getNextGroup*(root: Node, p: seq[DictionaryEntry], i: LogEntry): DictionaryEntryGroup =
   result = DictionaryEntryGroup(time: i.time)
   result.dictionaryPrefixes = root.updateGroups(p, i)

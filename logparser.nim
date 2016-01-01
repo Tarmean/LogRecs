@@ -153,6 +153,17 @@ iterator parse*(parser: var BaseLexer): LogEntry =
       #   inputStack.add((stroke, translation, time))
 
 
+proc parseLine(line: string): LogEntry =
+  let time = line[0..<23].parse "yyyy-MM-dd HH:mm:ss"
+  case line[24]
+  of 'S': return LogEntry(kind: lStroke, time: time)
+  of '*': return LogEntry(kind: lDeletion, time: time)
+  of 'T':
+    var
+      strokes = ""
+      translation = ""
+    result = LogEntry(time: time)
+  else: return LogEntry(kind: lError, time: time)
 
 
 
