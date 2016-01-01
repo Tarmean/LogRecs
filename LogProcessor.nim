@@ -7,14 +7,7 @@ proc getEntries*(): DictionaryTree =
       p = openLog logPath
       q = initLogQueue()
     for entry in p.parse:
-      case entry.kind
-      of lAddition:
-        q.addStroke(result, entry)
-        if q.count >= maxStrokes:
-            q.finishStroke()
-      of lDeletion:
-        q.removeStroke()
-      else: break
+      q.processEntry(result, entry)
 
 when isMainModule:
   from strutils import repeat

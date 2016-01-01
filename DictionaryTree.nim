@@ -87,8 +87,9 @@ proc addStroke(n: Node, wasted: int, originalStroke: string, t: TimeInfo) =
     n.val.usedStrokes[] = @[]
   n.val.usedStrokes[].add initStroke(originalStroke, t)
 
-proc getNextNode(n: Node, key: string): Node =
-  result = n
+proc getNextNode(entry: DictionaryEntry): Node =
+  result = entry.node
+  let key = entry.translation
   while result != nil and result.byte < key.len and not result.isLeaf:
     let 
      ch = key[result.byte]
@@ -96,7 +97,9 @@ proc getNextNode(n: Node, key: string): Node =
     result = result.child[dir]
 
 proc addEntry(r: var seq[DictionaryEntry], d: DictionaryEntry, t: TimeInfo) =
-  let node = getNextNode(d.node, d.translation)
+  var 
+     node = getNextNode(d)
+     d = d
   if isNil node:
     discard
   elif node.isLeaf:
@@ -106,24 +109,20 @@ proc addEntry(r: var seq[DictionaryEntry], d: DictionaryEntry, t: TimeInfo) =
     if node.key == d.translation and wasted > 0:
       node.addStroke wasted, d.originalStroke, t
   else:
-    r.add DictionaryEntry(
-                           strokes:        d.strokes,
-                           originalStroke: d.originalStroke,
-                           translation:    d.translation,
-                           node:           node
-                         )
+    d.node = node
+    r.add d
 
 proc initDictionaryEntry(strokes: int, stroke, translation: string, node: Node): DictionaryEntry =
   DictionaryEntry(strokes: strokes, originalStroke: stroke, translation: translation, node: node)
 
-proc getEntry(d: DictionaryEntry, i: LogEntry): DictionaryEntry =
+proc getEntry*(d: DictionaryEntry, i: LogEntry): DictionaryEntry =
   let
     strokes = d.strokes + i.stroke.count('/') + 1
     translation = d.translation & " " & i.translation
     stroke = d.originalStroke & " " & i.stroke
     node = d.node
   initDictionaryEntry(strokes, stroke, translation, node)
-proc getEntry(n: Node, i: LogEntry): DictionaryEntry =
+proc getEntry*(n: Node, i: LogEntry): DictionaryEntry =
   let
     strokes = i.stroke.count('/') + 1
     translation = i.translation
@@ -131,11 +130,13 @@ proc getEntry(n: Node, i: LogEntry): DictionaryEntry =
     node = n
   initDictionaryEntry(strokes, stroke, translation, node)
 
-proc updateGroups*(root: Node, p: seq[DictionaryEntry], i: LogEntry): seq[DictionaryEntry] =
-  result = @[]
+
+proc getNextGroup*(root: Node, p: seq[DictionaryEntry], i: LogEntry): DictionaryEntryGroup =
+  result = DictionaryEntryGroup(time: i.time)
+  result.dictionaryPrefixes = @[]
   for a in p:
-    result.addEntry a.getEntry i, i.time
-  result.addEntry root.getEntry i, i.time
+    result.dictionaryPrefixes.addEntry a.getEntry(i), i.time
+  result.dictionaryPrefixes.addEntry root.getEntry(i), i.time
 
 proc finishNodes*(e: DictionaryEntryGroup) =
   for entry in e.dictionaryPrefixes:
@@ -151,7 +152,3 @@ proc finishNodes*(e: DictionaryEntryGroup) =
       else:
         let dir = (('\0'.ord or it.otherBits.ord) + 1) shr 8
         it = it.child[dir]
-
-proc getNextGroup*(root: Node, p: seq[DictionaryEntry], i: LogEntry): DictionaryEntryGroup =
-  result = DictionaryEntryGroup(time: i.time)
-  result.dictionaryPrefixes = root.updateGroups(p, i)

@@ -12,9 +12,9 @@ type
     stroke*: string
   
   LogKind* = enum
-    lAddition, ## Type some stuff
-    lDeletion,      ## Remove the typed stuff
-    lStroke,   ## Internal state for '*Translation' entries, doesn't output but modifies the next 'Translation'
+    lAddition,
+    lDeletion,
+    lStroke,
     lError
   LogEntry* = object
     case kind*: LogKind
@@ -42,35 +42,16 @@ proc newTranslation*(): Translation =
   result = Translation()
   result.usages = 0
   result.wastedStrokes = 0
-  # result.strokes = newSeq[Stroke]()
-  # result.errors = newSeq[Stroke]()
-proc newStroke(s: string, t: TimeInfo): Stroke =
-  result = Stroke()
-  result.stroke = s
-  result.times = @[t]
-
-# proc updateStroke*(t: var Translation, stroke, wasted) =
-#   # for v in t.strokes.mitems():
-#   #   if v.stroke == stroke:
-#   #     v.times.add time
-#   #     return
-#   t.strokes.add newStroke(stroke, time)
-# proc updateError(t: var Translation, stroke: string, time: TimeInfo) =
-#   for v in t.errors.mitems():
-#     if v.stroke == stroke:
-#       v.times.add time
-#       return
-#   t.errors.add newStroke(stroke, time)
 
 iterator parse*(parser: var BaseLexer): LogEntry =
   var 
-    time: TimeInfo                  # (parsed) time of the current entry
-    id:   LogKind                   # type of the current entry
     stroke       = ""               # buffer for the current stroke
     translation  = ""               # buffer for the current translation
     timeString   = newString 23     # buffer for the date and time fields
     strokeLength = 0                # length of the current stroke, i.e. number of /'s +1
     i            = parser.lineStart # position in the lexer buffer
+    time:   TimeInfo                # (parsed) time of the current entry
+    id:     LogKind                 # type of the current entry
     result: LogEntry
 
   block outer:
@@ -137,33 +118,22 @@ iterator parse*(parser: var BaseLexer): LogEntry =
       translation.setLen 0
       stroke.setLen 0
 
-      # if id == 'T':
-      #   if inputStack.len > 0:
-      #     var transRef: Translation = result.mgetOrPut(inputStack[0][1], newTranslation())
-      #     inc transRef.errorCount, errorStack.len
-      #     for error in errorStack:
-      #       transRef.updateError(error[0], error[1])
-
-      #     transRef.updateStroke(inputStack[0][0], inputStack[0][2])
-      #     inc transRef.usages
-      #     errorStack.setLen 0
-      #     inputStack.setLen inputStack.len - 1
-
-      #   
-      #   inputStack.add((stroke, translation, time))
-
-
-proc parseLine(line: string): LogEntry =
-  let time = line[0..<23].parse "yyyy-MM-dd HH:mm:ss"
-  case line[24]
-  of 'S': return LogEntry(kind: lStroke, time: time)
-  of '*': return LogEntry(kind: lDeletion, time: time)
-  of 'T':
-    var
-      strokes = ""
-      translation = ""
-    result = LogEntry(time: time)
-  else: return LogEntry(kind: lError, time: time)
+proc parseLine*(line: string): LogEntry =
+  let 
+    split = line.split(" ")
+    stroke = split[0]
+    translation = split[1]
+  return LogEntry(kind: lAddition, stroke: stroke, translation: translation, time: TimeInfo(monthday: 1))
+  # let time = line[0..<23].parse "yyyy-MM-dd HH:mm:ss"
+  # case line[24]
+  # of 'S': return LogEntry(kind: lStroke, time: time)
+  # of '*': return LogEntry(kind: lDeletion, time: time)
+  # of 'T':
+  #   var
+  #     strokes = ""
+  #     translation = ""
+  #   result = LogEntry(time: time)
+  # else: return LogEntry(kind: lError, time: time)
 
 
 
@@ -191,19 +161,3 @@ when isMainModule:
         if inputs[inputs.high].len == 0:
           inputs.setLen inputs.len - 1
     else: break
-
-# for entry in inputs:
-#   echo ""
-#   for modifications in entry:
-#     let (s, t, d) = modifications
-#     echo s, " ", t
-  # if b.errorCount >= 10:
-  #   echo a, ": "
-  #   echo "  usages: ", b.usages
-  #   echo "  errors: ", b.errorCount
-  #   for error in b.errors:
-  #     echo "  ", error.stroke, " ".repeat(max(30 - error.stroke.len, 0)), error.times.len
-  #     for time in error.times:
-  #       echo "    ", time.format "yyyy-MM-dd HH:mm:ss"#"h:mm:ss d/M/yy"
-
-

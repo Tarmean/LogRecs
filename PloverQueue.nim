@@ -1,6 +1,6 @@
 import queue, DictionaryTree
 from times import TimeInfo
-from LogParser import LogEntry
+import LogParser
 
 type LogQueue* = Queue[DictionaryEntryGroup]
 
@@ -30,3 +30,25 @@ proc finishStroke*(q: var LogQueue) =
 proc removeStroke*(q: var LogQueue) =
   if q.count == 0: return
   discard q.pop
+
+const maxStrokes = 10
+proc processEntry*(q: var LogQueue, t: DictionaryTree, entry: LogEntry) {.inline.} =
+  case entry.kind
+  of lAddition:
+    q.addStroke(t, entry)
+    if q.count >= maxStrokes:
+        q.finishStroke()
+  of lDeletion:
+    q.removeStroke()
+  else: discard
+
+iterator matches*(q: var LogQueue, t: DictionaryTree, i: Logentry): (int, string, TreeEntry) =
+  var
+    prefixes = if q.count > 0:
+                 q.peak.dictionaryPrefixes
+               else:
+                 @[]
+    next: DictionaryEntryGroup
+  for output in next.iteratorFinishedNodes(t, prefixes, i):
+    yield output
+  q.add next
