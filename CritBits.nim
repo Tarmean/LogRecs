@@ -177,7 +177,7 @@ proc excl*[T](c: var CritBitTree[T], key: string) =
       whereq[] = q.child[1 - dir]
     dec c.count
 
-iterator leaves[T](n: Node[T]): Node[T] =
+iterator leaves*[T](n: Node[T]): Node[T] =
   if n != nil:
     # XXX actually we could compute the necessary stack size in advance:
     # it's roughly log2(c.count).

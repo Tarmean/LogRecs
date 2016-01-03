@@ -30,11 +30,14 @@ proc openLog*(path: string): LogParser =
   result.open s
 
 proc newDeletionEntry(t: TimeInfo): LogEntry =
-  result = LogEntry(time: t)
-  result.kind = lDeletion
-proc newLogEntry(kind: LogKind, stroke, translation: string, time: TimeInfo): LogEntry =
+  result = LogEntry(time: t, kind: lDeletion)
+proc newStrokeEntry(t: TimeInfo): LogEntry =
+  result = LogEntry(time: t, kind: lStroke)
+proc newErrorEntry(t: TimeInfo): LogEntry =
+  result = LogEntry(time: t, kind: lError)
+proc newLogEntry(stroke, translation: string, time: TimeInfo): LogEntry =
   result             = LogEntry(time: time)
-  result.kind        = kind
+  result.kind        = lAddition
   result.stroke      = stroke
   result.translation = translation
 
@@ -92,7 +95,7 @@ iterator parse*(parser: var BaseLexer): LogEntry =
             of '\l': i = parser.handleLF i
             else: break outer
             break
-        result = newLogEntry(id, stroke, translation, time)
+        result = newLogEntry(stroke, translation, time)
 
       of lDeletion: # two options, multi stroke or * deletion. If it is a deletion the state is Deleting
         while parser.buf[i] notin {'\c', '\l'}: inc i
@@ -119,22 +122,36 @@ iterator parse*(parser: var BaseLexer): LogEntry =
       stroke.setLen 0
 
 proc parseLine*(line: string): LogEntry =
-  let 
-    split = line.split(" ")
-    stroke = split[0]
-    translation = split[1]
-  return LogEntry(kind: lAddition, stroke: stroke, translation: translation, time: TimeInfo(monthday: 1))
-  # let time = line[0..<23].parse "yyyy-MM-dd HH:mm:ss"
-  # case line[24]
-  # of 'S': return LogEntry(kind: lStroke, time: time)
-  # of '*': return LogEntry(kind: lDeletion, time: time)
-  # of 'T':
-  #   var
-  #     strokes = ""
-  #     translation = ""
-  #   result = LogEntry(time: time)
-  # else: return LogEntry(kind: lError, time: time)
+  if line == "*": return LogEntry(kind: lDeletion, time: getTime().getLocalTime())
+  return LogEntry(kind: lAddition, stroke: "", translation: line, time: getTime().getLocalTime())
 
+proc parse*(line: string): LogEntry =
+  var
+    stroke       = ""
+    time         = line[0..<23].parse "yyyy-MM-dd HH:mm:ss"
+    i            = 37
+  case line[24] # 24th character of the line can be used to id the type
+  of 'T':
+    var nextDist = 2
+    while true:
+      while line[i] != '\'':
+        inc i
+      inc i
+      while line[i] != '\'':
+        stroke.add line[i]
+        inc i
+      inc i, nextDist # only trailing "," if it is a one stroke word
+      if line[i] == ')':
+        break
+      nextDist = 1
+      stroke.add '/'
+    return newLogEntry(stroke, line[i+4..line.high-1], time)
+  of '*':
+    return newDeletionEntry(time)
+  of 'S':
+    return newStrokeEntry(time)
+  else:
+    return newErrorEntry(time)
 
 
 
